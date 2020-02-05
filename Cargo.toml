@@ -1,0 +1,9 @@
+[package]
+name = "svg-sprite"
+description = "Takes SVG files and create SVG sprite"
+version = "0.1.0"
+authors = ["Đorđe Zeljić <zeljic@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+xmltree = "0.10.0"
