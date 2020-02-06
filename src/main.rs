@@ -1,4 +1,5 @@
 use std::{convert::TryFrom, ffi::OsStr, path::Path};
+use xmltree::{Element, Namespace};
 
 #[derive(Debug)]
 struct SVGFile {
@@ -73,7 +74,7 @@ fn walk(path: &Path, svgs: &mut Vec<SVGFile>, parents: Vec<String>) -> Result<()
 fn main() -> Result<(), &'static str> {
 	let args = std::env::args().skip(1).collect::<Vec<String>>();
 	let source = args.get(0).ok_or_else(|| "No source path")?;
-	let _destination = args.get(1).ok_or_else(|| "No destination path");
+	let destination = args.get(1).ok_or_else(|| "No destination path")?;
 
 	let source_path: &Path = Path::new(source);
 
@@ -85,8 +86,21 @@ fn main() -> Result<(), &'static str> {
 
 	walk(source_path, &mut svgs, vec![])?;
 
-	for svg in svgs {
-		println!("{:?}", svg);
+	let mut svg = Element::new("svg");
+	let mut namespaces = Namespace::empty();
+
+	namespaces.put("", "http://www.w3.org/2000/svg");
+	namespaces.put("xlink", "http://www.w3.org/1999/xlink");
+
+	svg.namespaces = Some(namespaces);
+
+	if let Ok(file) = std::fs::File::create(destination) {
+		match svg.write(file) {
+			Ok(_) => {}
+			Err(e) => {
+				eprintln!("{:?}", e);
+			}
+		}
 	}
 
 	Ok(())
