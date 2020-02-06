@@ -1,23 +1,23 @@
-use std::{convert::TryFrom, ffi::OsStr, path::Path};
-use xmltree::{Element, Namespace};
+use std::{
+	ffi::OsStr,
+	path::{Path, PathBuf},
+};
+use xmltree::{Element, EmitterConfig, Namespace, XMLNode};
 
 #[derive(Debug)]
 struct SVGFile {
-	path: Vec<String>,
-	content: String,
+	tree_names: Vec<String>,
+	system_path: PathBuf,
 }
 
-impl TryFrom<&Path> for SVGFile {
-	type Error = &'static str;
-
-	fn try_from(value: &Path) -> Result<Self, Self::Error> {
-		if let Ok(content) = std::fs::read_to_string(value) {
-			Ok(SVGFile {
-				path: vec![],
-				content,
-			})
-		} else {
-			Err("Unable to read file")
+impl<P> From<P> for SVGFile
+where
+	P: AsRef<Path>,
+{
+	fn from(path: P) -> Self {
+		SVGFile {
+			tree_names: vec![],
+			system_path: PathBuf::from(path.as_ref()),
 		}
 	}
 }
@@ -40,17 +40,17 @@ fn walk(path: &Path, svgs: &mut Vec<SVGFile>, parents: Vec<String>) -> Result<()
 			} else {
 				if let Some(ext) = item.extension() {
 					if ext == valid_ext {
-						if let Ok(mut svg_file) = SVGFile::try_from(item.as_path()) {
-							let mut path = parents.to_owned();
+						let mut svg_file = SVGFile::from(item.as_path());
 
-							svg_file.path.append(&mut path);
+						let mut path = parents.to_owned();
 
-							if let Some(name) = item.file_stem() {
-								svg_file.path.push(name.to_string_lossy().to_string());
-							}
-
-							svgs.push(svg_file);
+						if let Some(name) = item.file_stem() {
+							path.push(name.to_string_lossy().to_string());
 						}
+
+						svg_file.tree_names = path;
+
+						svgs.push(svg_file);
 					}
 				}
 			}
@@ -94,8 +94,41 @@ fn main() -> Result<(), &'static str> {
 
 	svg.namespaces = Some(namespaces);
 
+	svgs.iter().for_each(|svg_file| {
+		if let Ok(svg_content) = std::fs::read_to_string(&svg_file.system_path) {
+			if let Ok(svg_root_element) = Element::parse(svg_content.as_bytes()) {
+				let mut symbol = Element::new("symbol");
+
+				if let Some((k, v)) = svg_root_element.attributes.get_key_value("viewBox") {
+					symbol.attributes.insert(k.to_owned(), v.to_owned());
+				}
+
+				for child in svg_root_element.children {
+					match child {
+						XMLNode::Element(_) | XMLNode::CData(_) | XMLNode::Text(_) => {
+							symbol.children.push(child)
+						}
+						_ => {}
+					}
+				}
+
+				symbol
+					.attributes
+					.insert("id".to_owned(), svg_file.tree_names.join("/"));
+
+				svg.children.push(XMLNode::Element(symbol));
+			}
+		}
+	});
+
 	if let Ok(file) = std::fs::File::create(destination) {
-		match svg.write(file) {
+		let mut config = EmitterConfig::default();
+		config.perform_indent = true;
+		config.normalize_empty_elements = true;
+		config.write_document_declaration = true;
+		config.autopad_comments = false;
+
+		match svg.write_with_config(file, config) {
 			Ok(_) => {}
 			Err(e) => {
 				eprintln!("{:?}", e);
