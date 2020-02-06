@@ -1,8 +1,8 @@
-use std::{convert::TryFrom, path::Path};
+use std::{convert::TryFrom, ffi::OsStr, path::Path};
 
 #[derive(Debug)]
 struct SVGFile {
-	parents: Vec<String>,
+	path: Vec<String>,
 	content: String,
 }
 
@@ -12,7 +12,7 @@ impl TryFrom<&Path> for SVGFile {
 	fn try_from(value: &Path) -> Result<Self, Self::Error> {
 		if let Ok(content) = std::fs::read_to_string(value) {
 			Ok(SVGFile {
-				parents: vec![],
+				path: vec![],
 				content,
 			})
 		} else {
@@ -27,6 +27,7 @@ fn walk(path: &Path, svgs: &mut Vec<SVGFile>, parents: Vec<String>) -> Result<()
 	}
 
 	let mut dirs = vec![];
+	let valid_ext = OsStr::new("svg");
 
 	path.read_dir()
 		.map_err(|_| "read_dir error")?
@@ -36,15 +37,20 @@ fn walk(path: &Path, svgs: &mut Vec<SVGFile>, parents: Vec<String>) -> Result<()
 			if item.is_dir() {
 				dirs.push(item);
 			} else {
-				if let Ok(mut svg_file) = SVGFile::try_from(item.as_path()) {
-					let mut parents = parents.to_owned();
+				if let Some(ext) = item.extension() {
+					if ext == valid_ext {
+						if let Ok(mut svg_file) = SVGFile::try_from(item.as_path()) {
+							let mut path = parents.to_owned();
 
-					svg_file.parents.append(&mut parents);
+							svg_file.path.append(&mut path);
 
-					item.file_stem()
-						.map(|item| svg_file.parents.push(item.to_str().unwrap().to_string()));
+							if let Some(name) = item.file_stem() {
+								svg_file.path.push(name.to_string_lossy().to_string());
+							}
 
-					svgs.push(svg_file);
+							svgs.push(svg_file);
+						}
+					}
 				}
 			}
 		});
