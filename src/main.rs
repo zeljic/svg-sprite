@@ -8,6 +8,12 @@ use std::{
 };
 use xmltree::{Element, EmitterConfig, Namespace, XMLNode};
 
+#[derive(Debug, PartialEq)]
+enum SVGTag {
+	G,
+	SYMBOL,
+}
+
 #[derive(Debug)]
 struct SVGFile {
 	tree_names: Vec<String>,
@@ -93,18 +99,29 @@ fn main() -> Result<(), &'static str> {
 		.default_value("-")
 		.help("String placed between each directory in generated id for every SVG file");
 
+	let arg_tag = Arg::with_name("tag")
+		.short("t")
+		.long("tag")
+		.takes_value(true)
+		.default_value("symbol")
+		.possible_values(&["g", "symbol"])
+		.help("Tag for every generated child of new created SVG file");
+
 	let args_matches = App::new(crate_name!())
 		.version(crate_version!())
 		.author(crate_authors!())
 		.about(crate_description!())
-		.args(&[arg_input, arg_output, arg_separator])
+		.args(&[arg_input, arg_output, arg_separator, arg_tag])
 		.get_matches();
 
-	println!("{:?}", args_matches);
+	let input = value_t!(args_matches, "INPUT", String).unwrap_or_else(|e| e.exit());
+	let output = value_t!(args_matches, "OUTPUT", String).unwrap_or_else(|e| e.exit());
+	let separator = value_t!(args_matches, "separator", String).unwrap_or_else(|_| "-".to_owned());
 
-	let input: String = value_t_or_exit!(args_matches, "INPUT", String);
-	let output: String = value_t_or_exit!(args_matches, "OUTPUT", String);
-	let separator = args_matches.value_of("separator").unwrap_or("-");
+	let tag: SVGTag = match args_matches.value_of("tag") {
+		Some("g") => SVGTag::G,
+		_ => SVGTag::SYMBOL,
+	};
 
 	let source_path: &Path = Path::new(input.as_str());
 
@@ -127,10 +144,15 @@ fn main() -> Result<(), &'static str> {
 	svgs.iter().for_each(|svg_file| {
 		if let Ok(svg_content) = std::fs::read_to_string(&svg_file.system_path) {
 			if let Ok(svg_root_element) = Element::parse(svg_content.as_bytes()) {
-				let mut symbol = Element::new("symbol");
+				let mut symbol = Element::new(match tag {
+					SVGTag::G => "g",
+					SVGTag::SYMBOL => "symbol",
+				});
 
-				if let Some((k, v)) = svg_root_element.attributes.get_key_value("viewBox") {
-					symbol.attributes.insert(k.to_owned(), v.to_owned());
+				if tag == SVGTag::SYMBOL {
+					if let Some((k, v)) = svg_root_element.attributes.get_key_value("viewBox") {
+						symbol.attributes.insert(k.to_owned(), v.to_owned());
+					}
 				}
 
 				for child in svg_root_element.children {
@@ -144,7 +166,7 @@ fn main() -> Result<(), &'static str> {
 
 				symbol.attributes.insert(
 					"id".to_owned(),
-					format!("#{}", svg_file.tree_names.join(separator)),
+					format!("#{}", svg_file.tree_names.join(&separator)),
 				);
 
 				svg.children.push(XMLNode::Element(symbol));
