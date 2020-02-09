@@ -7,3 +7,4 @@ edition = "2018"
 
 [dependencies]
 xmltree = "0.10.0"
+clap = "2.33.0"
