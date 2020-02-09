@@ -1,3 +1,7 @@
+#[macro_use]
+extern crate clap;
+
+use clap::{App, Arg};
 use std::{
 	ffi::OsStr,
 	path::{Path, PathBuf},
@@ -72,11 +76,37 @@ fn walk(path: &Path, svgs: &mut Vec<SVGFile>, parents: Vec<String>) -> Result<()
 }
 
 fn main() -> Result<(), &'static str> {
-	let args = std::env::args().skip(1).collect::<Vec<String>>();
-	let source = args.get(0).ok_or_else(|| "No source path")?;
-	let destination = args.get(1).ok_or_else(|| "No destination path")?;
+	let arg_input = Arg::with_name("INPUT")
+		.index(1)
+		.required(true)
+		.help("Source directory where svg files are located");
 
-	let source_path: &Path = Path::new(source);
+	let arg_output = Arg::with_name("OUTPUT")
+		.index(2)
+		.required(true)
+		.help("Output file");
+
+	let arg_separator = Arg::with_name("separator")
+		.short("s")
+		.long("separator")
+		.takes_value(true)
+		.default_value("-")
+		.help("String placed between each directory in generated id for every SVG file");
+
+	let args_matches = App::new(crate_name!())
+		.version(crate_version!())
+		.author(crate_authors!())
+		.about(crate_description!())
+		.args(&[arg_input, arg_output, arg_separator])
+		.get_matches();
+
+	println!("{:?}", args_matches);
+
+	let input: String = value_t_or_exit!(args_matches, "INPUT", String);
+	let output: String = value_t_or_exit!(args_matches, "OUTPUT", String);
+	let separator = args_matches.value_of("separator").unwrap_or("-");
+
+	let source_path: &Path = Path::new(input.as_str());
 
 	if !source_path.is_dir() {
 		return Err("Source path is not directory");
@@ -112,21 +142,19 @@ fn main() -> Result<(), &'static str> {
 					}
 				}
 
-				symbol
-					.attributes
-					.insert("id".to_owned(), svg_file.tree_names.join("/"));
+				symbol.attributes.insert(
+					"id".to_owned(),
+					format!("#{}", svg_file.tree_names.join(separator)),
+				);
 
 				svg.children.push(XMLNode::Element(symbol));
 			}
 		}
 	});
 
-	if let Ok(file) = std::fs::File::create(destination) {
+	if let Ok(file) = std::fs::File::create(output) {
 		let mut config = EmitterConfig::default();
 		config.perform_indent = true;
-		config.normalize_empty_elements = true;
-		config.write_document_declaration = true;
-		config.autopad_comments = false;
 
 		match svg.write_with_config(file, config) {
 			Ok(_) => {}
