@@ -47,21 +47,19 @@ fn walk(path: &Path, svgs: &mut Vec<SVGFile>, parents: Vec<String>) -> Result<()
 		.for_each(|item| {
 			if item.is_dir() {
 				dirs.push(item);
-			} else {
-				if let Some(ext) = item.extension() {
-					if ext == valid_ext {
-						let mut svg_file = SVGFile::from(item.as_path());
+			} else if let Some(ext) = item.extension() {
+				if ext == valid_ext {
+					let mut svg_file = SVGFile::from(item.as_path());
 
-						let mut path = parents.to_owned();
+					let mut path = parents.to_owned();
 
-						if let Some(name) = item.file_stem() {
-							path.push(name.to_string_lossy().to_string());
-						}
-
-						svg_file.tree_names = path;
-
-						svgs.push(svg_file);
+					if let Some(name) = item.file_stem() {
+						path.push(name.to_string_lossy().to_string());
 					}
+
+					svg_file.tree_names = path;
+
+					svgs.push(svg_file);
 				}
 			}
 		});
@@ -120,6 +118,7 @@ fn main() -> Result<(), &'static str> {
 		.help("Tag for every generated child of new created SVG file");
 
 	let arg_clear_attributes = Arg::with_name("clear-attribute")
+		.short("c")
 		.long("clear-attribute")
 		.takes_value(true)
 		.multiple(true)
@@ -169,37 +168,39 @@ fn main() -> Result<(), &'static str> {
 
 	svgs.iter().for_each(|svg_file| {
 		if let Ok(svg_content) = std::fs::read_to_string(&svg_file.system_path) {
-			if let Ok(mut svg_root_element) = Element::parse(svg_content.as_bytes()) {
-				let mut symbol = Element::new(match tag {
+			if let Ok(svg_root_element) = Element::parse(svg_content.as_bytes()) {
+				let mut new_svg_element = Element::new(match tag {
 					SVGTag::G => "g",
 					SVGTag::SYMBOL => "symbol",
 				});
 
 				if tag == SVGTag::SYMBOL {
 					if let Some((k, v)) = svg_root_element.attributes.get_key_value("viewBox") {
-						symbol.attributes.insert(k.to_owned(), v.to_owned());
+						new_svg_element
+							.attributes
+							.insert(k.to_owned(), v.to_owned());
 					}
 				}
 
 				svg_root_element
 					.children
-					.iter_mut()
-					.for_each(|child| crate::clear_attributes(child, &clear_attributes));
-
-				svg_root_element
-					.children
 					.into_iter()
-					.for_each(|child| match child {
-						XMLNode::Comment(_) => {}
-						_ => symbol.children.push(child),
+					.filter(|child| match child {
+						XMLNode::Comment(_) => false,
+						_ => true,
+					})
+					.for_each(|mut child| {
+						crate::clear_attributes(&mut child, &clear_attributes);
+
+						new_svg_element.children.push(child);
 					});
 
-				symbol.attributes.insert(
+				new_svg_element.attributes.insert(
 					"id".to_owned(),
 					format!("#{}", svg_file.tree_names.join(&separator)),
 				);
 
-				svg.children.push(XMLNode::Element(symbol));
+				svg.children.push(XMLNode::Element(new_svg_element));
 			}
 		}
 	});
