@@ -81,6 +81,18 @@ fn walk(path: &Path, svgs: &mut Vec<SVGFile>, parents: Vec<String>) -> Result<()
 	Ok(())
 }
 
+fn clear_attributes(xml_node: &mut XMLNode, attrs: &[String]) {
+	if let XMLNode::Element(el) = xml_node {
+		for attr in attrs {
+			el.attributes.remove(attr);
+
+			el.children.iter_mut().for_each(|el| {
+				crate::clear_attributes(el, attrs);
+			});
+		}
+	}
+}
+
 fn main() -> Result<(), &'static str> {
 	let arg_input = Arg::with_name("INPUT")
 		.index(1)
@@ -107,31 +119,45 @@ fn main() -> Result<(), &'static str> {
 		.possible_values(&["g", "symbol"])
 		.help("Tag for every generated child of new created SVG file");
 
+	let arg_clear_attributes = Arg::with_name("clear-attribute")
+		.long("clear-attribute")
+		.takes_value(true)
+		.multiple(true)
+		.number_of_values(1)
+		.help("Remove attributes from SVG file");
+
 	let args_matches = App::new(crate_name!())
 		.version(crate_version!())
 		.author(crate_authors!())
 		.about(crate_description!())
-		.args(&[arg_input, arg_output, arg_separator, arg_tag])
+		.args(&[
+			arg_input,
+			arg_output,
+			arg_separator,
+			arg_tag,
+			arg_clear_attributes,
+		])
 		.get_matches();
 
 	let input = value_t!(args_matches, "INPUT", String).unwrap_or_else(|e| e.exit());
 	let output = value_t!(args_matches, "OUTPUT", String).unwrap_or_else(|e| e.exit());
 	let separator = value_t!(args_matches, "separator", String).unwrap_or_else(|_| "-".to_owned());
-
 	let tag: SVGTag = match args_matches.value_of("tag") {
 		Some("g") => SVGTag::G,
 		_ => SVGTag::SYMBOL,
 	};
+	let clear_attributes: Vec<String> =
+		values_t!(args_matches, "clear-attribute", String).unwrap_or_else(|_| vec![]);
 
-	let source_path: &Path = Path::new(input.as_str());
+	let input_path: &Path = Path::new(input.as_str());
 
-	if !source_path.is_dir() {
-		return Err("Source path is not directory");
+	if !input_path.is_dir() {
+		return Err("Input path is not directory");
 	}
 
 	let mut svgs = vec![];
 
-	walk(source_path, &mut svgs, vec![])?;
+	walk(input_path, &mut svgs, vec![])?;
 
 	let mut svg = Element::new("svg");
 	let mut namespaces = Namespace::empty();
@@ -143,7 +169,7 @@ fn main() -> Result<(), &'static str> {
 
 	svgs.iter().for_each(|svg_file| {
 		if let Ok(svg_content) = std::fs::read_to_string(&svg_file.system_path) {
-			if let Ok(svg_root_element) = Element::parse(svg_content.as_bytes()) {
+			if let Ok(mut svg_root_element) = Element::parse(svg_content.as_bytes()) {
 				let mut symbol = Element::new(match tag {
 					SVGTag::G => "g",
 					SVGTag::SYMBOL => "symbol",
@@ -155,14 +181,18 @@ fn main() -> Result<(), &'static str> {
 					}
 				}
 
-				for child in svg_root_element.children {
-					match child {
-						XMLNode::Element(_) | XMLNode::CData(_) | XMLNode::Text(_) => {
-							symbol.children.push(child)
-						}
-						_ => {}
-					}
-				}
+				svg_root_element
+					.children
+					.iter_mut()
+					.for_each(|child| crate::clear_attributes(child, &clear_attributes));
+
+				svg_root_element
+					.children
+					.into_iter()
+					.for_each(|child| match child {
+						XMLNode::Comment(_) => {}
+						_ => symbol.children.push(child),
+					});
 
 				symbol.attributes.insert(
 					"id".to_owned(),
