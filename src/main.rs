@@ -79,13 +79,13 @@ fn walk(path: &Path, svgs: &mut Vec<SVGFile>, parents: Vec<String>) -> Result<()
 	Ok(())
 }
 
-fn clear_attributes(xml_node: &mut XMLNode, attrs: &[String]) {
+fn remove_attributes(xml_node: &mut XMLNode, attrs: &[String]) {
 	if let XMLNode::Element(el) = xml_node {
 		for attr in attrs {
 			el.attributes.remove(attr);
 
 			el.children.iter_mut().for_each(|el| {
-				crate::clear_attributes(el, attrs);
+				crate::remove_attributes(el, attrs);
 			});
 		}
 	}
@@ -95,19 +95,19 @@ fn main() -> Result<(), &'static str> {
 	let arg_input = Arg::with_name("INPUT")
 		.index(1)
 		.required(true)
-		.help("Source directory where svg files are located");
+		.long_help("Source directory where svg files are located");
 
 	let arg_output = Arg::with_name("OUTPUT")
 		.index(2)
 		.required(true)
-		.help("Output file");
+		.long_help("Output file");
 
 	let arg_separator = Arg::with_name("separator")
 		.short("s")
 		.long("separator")
 		.takes_value(true)
 		.default_value("-")
-		.help("String placed between each directory in generated id for every SVG file");
+		.long_help("String placed between each directory in generated id for every SVG file");
 
 	let arg_tag = Arg::with_name("tag")
 		.short("t")
@@ -115,15 +115,23 @@ fn main() -> Result<(), &'static str> {
 		.takes_value(true)
 		.default_value("symbol")
 		.possible_values(&["g", "symbol"])
-		.help("Tag for every generated child of new created SVG file");
+		.long_help("Tag for every generated child of new created SVG file");
 
-	let arg_clear_attributes = Arg::with_name("clear-attribute")
-		.short("c")
-		.long("clear-attribute")
+	let arg_remove_attributes = Arg::with_name("remove-attribute")
+		.short("a")
+		.long("remove-attribute")
 		.takes_value(true)
 		.multiple(true)
 		.number_of_values(1)
-		.help("Remove attributes from SVG file");
+		.long_help("Remove attributes from SVG file");
+
+	let arg_remove_elements = Arg::with_name("remove-element")
+		.short("e")
+		.long("remove-element")
+		.takes_value(true)
+		.multiple(true)
+		.number_of_values(1)
+		.long_help("Remove elements from svg based on tag name");
 
 	let args_matches = App::new(crate_name!())
 		.version(crate_version!())
@@ -134,7 +142,8 @@ fn main() -> Result<(), &'static str> {
 			arg_output,
 			arg_separator,
 			arg_tag,
-			arg_clear_attributes,
+			arg_remove_attributes,
+			arg_remove_elements,
 		])
 		.get_matches();
 
@@ -145,8 +154,10 @@ fn main() -> Result<(), &'static str> {
 		Some("g") => SVGTag::G,
 		_ => SVGTag::SYMBOL,
 	};
-	let clear_attributes: Vec<String> =
-		values_t!(args_matches, "clear-attribute", String).unwrap_or_else(|_| vec![]);
+	let remove_attributes: Vec<String> =
+		values_t!(args_matches, "remove-attribute", String).unwrap_or_else(|_| vec![]);
+	let _remove_elements: Vec<String> =
+		values_t!(args_matches, "remove-element", String).unwrap_or_else(|_| vec![]);
 
 	let input_path: &Path = Path::new(input.as_str());
 
@@ -185,12 +196,14 @@ fn main() -> Result<(), &'static str> {
 				svg_root_element
 					.children
 					.into_iter()
-					.filter(|child| match child {
-						XMLNode::Comment(_) => false,
-						_ => true,
+					.filter(|child| {
+						match child {
+							XMLNode::Comment(_) => false,
+							_ => true,
+						}
 					})
 					.for_each(|mut child| {
-						crate::clear_attributes(&mut child, &clear_attributes);
+						crate::remove_attributes(&mut child, &remove_attributes);
 
 						new_svg_element.children.push(child);
 					});

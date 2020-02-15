@@ -2,3 +2,4 @@ edition = "2018"
 hard_tabs = true
 reorder_imports = true
 merge_imports = true
+force_multiline_blocks = true
