@@ -33,7 +33,7 @@ where
 	}
 }
 
-fn walk(path: &Path, svgs: &mut Vec<SVGFile>, tree_names: Vec<String>) -> anyhow::Result<()> {
+fn walk(path: &Path, svgs: &mut Vec<SVGFile>, tree_names: Vec<String>, recursive: bool) -> anyhow::Result<()> {
 	if !path.is_dir() {
 		return Err(anyhow::anyhow!("path must be directory")).with_context(|| format!("{:?}", path));
 	}
@@ -46,7 +46,7 @@ fn walk(path: &Path, svgs: &mut Vec<SVGFile>, tree_names: Vec<String>) -> anyhow
 		.filter_map(|item| item.ok())
 		.map(|item| item.path())
 		.for_each(|item| {
-			if item.is_dir() {
+			if recursive && item.is_dir() {
 				dirs.push(item);
 			} else if let Some(ext) = item.extension() {
 				if ext == valid_ext {
@@ -64,16 +64,18 @@ fn walk(path: &Path, svgs: &mut Vec<SVGFile>, tree_names: Vec<String>) -> anyhow
 			}
 		});
 
-	for dir in dirs {
-		let mut dir_names = tree_names.to_owned();
+	if recursive {
+		for dir in dirs {
+			let mut dir_names = tree_names.to_owned();
 
-		if let Some(dir_name) = dir.file_name() {
-			if let Some(dir_name) = dir_name.to_str() {
-				dir_names.push(dir_name.to_owned());
+			if let Some(dir_name) = dir.file_name() {
+				if let Some(dir_name) = dir_name.to_str() {
+					dir_names.push(dir_name.to_owned());
+				}
 			}
-		}
 
-		walk(dir.as_path(), svgs, dir_names)?;
+			walk(dir.as_path(), svgs, dir_names, recursive)?;
+		}
 	}
 
 	Ok(())
@@ -130,6 +132,11 @@ fn main() {
 		.number_of_values(1)
 		.long_help("Remove elements from svg based on tag name");
 
+	let arg_recursive = Arg::with_name("recursive")
+		.short("r")
+		.long("recursive")
+		.long_help("Get files from INPUT recursively");
+
 	let args_matches = App::new(crate_name!())
 		.version(crate_version!())
 		.author(crate_authors!())
@@ -141,6 +148,7 @@ fn main() {
 			arg_tag,
 			arg_remove_attributes,
 			arg_remove_elements,
+			arg_recursive,
 		])
 		.get_matches();
 
@@ -153,12 +161,13 @@ fn main() {
 	};
 	let remove_attributes: Vec<String> = values_t!(args_matches, "remove-attribute", String).unwrap_or_else(|_| vec![]);
 	let _remove_elements: Vec<String> = values_t!(args_matches, "remove-element", String).unwrap_or_else(|_| vec![]);
+	let recursive = args_matches.is_present("recursive");
 
 	let input_path: &Path = Path::new(input.as_str());
 
 	let mut svgs = vec![];
 
-	if let Err(e) = walk(input_path, &mut svgs, vec![]) {
+	if let Err(e) = walk(input_path, &mut svgs, vec![], recursive) {
 		println!("{:#?}", e);
 
 		return;
