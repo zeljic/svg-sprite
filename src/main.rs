@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate clap;
 
+use anyhow::Context;
 use clap::{App, Arg};
 use std::{
 	ffi::OsStr,
@@ -32,16 +33,16 @@ where
 	}
 }
 
-fn walk(path: &Path, svgs: &mut Vec<SVGFile>, parents: Vec<String>) -> Result<(), &'static str> {
+fn walk(path: &Path, svgs: &mut Vec<SVGFile>, tree_names: Vec<String>) -> anyhow::Result<()> {
 	if !path.is_dir() {
-		return Ok(());
+		return Err(anyhow::anyhow!("path must be directory")).with_context(|| format!("{:?}", path));
 	}
 
 	let mut dirs = vec![];
 	let valid_ext = OsStr::new("svg");
 
 	path.read_dir()
-		.map_err(|_| "read_dir error")?
+		.with_context(|| format!("{:?}", path))?
 		.filter_map(|item| item.ok())
 		.map(|item| item.path())
 		.for_each(|item| {
@@ -50,8 +51,7 @@ fn walk(path: &Path, svgs: &mut Vec<SVGFile>, parents: Vec<String>) -> Result<()
 			} else if let Some(ext) = item.extension() {
 				if ext == valid_ext {
 					let mut svg_file = SVGFile::from(item.as_path());
-
-					let mut path = parents.to_owned();
+					let mut path = tree_names.to_owned();
 
 					if let Some(name) = item.file_stem() {
 						path.push(name.to_string_lossy().to_string());
@@ -65,11 +65,11 @@ fn walk(path: &Path, svgs: &mut Vec<SVGFile>, parents: Vec<String>) -> Result<()
 		});
 
 	for dir in dirs {
-		let mut dir_names = parents.to_owned();
+		let mut dir_names = tree_names.to_owned();
 
 		if let Some(dir_name) = dir.file_name() {
 			if let Some(dir_name) = dir_name.to_str() {
-				dir_names.push(String::from(dir_name));
+				dir_names.push(dir_name.to_owned());
 			}
 		}
 
@@ -91,16 +91,13 @@ fn remove_attributes(xml_node: &mut XMLNode, attrs: &[String]) {
 	}
 }
 
-fn main() -> Result<(), &'static str> {
+fn main() {
 	let arg_input = Arg::with_name("INPUT")
 		.index(1)
 		.required(true)
 		.long_help("Source directory where svg files are located");
 
-	let arg_output = Arg::with_name("OUTPUT")
-		.index(2)
-		.required(true)
-		.long_help("Output file");
+	let arg_output = Arg::with_name("OUTPUT").index(2).required(true).long_help("Output file");
 
 	let arg_separator = Arg::with_name("separator")
 		.short("s")
@@ -154,20 +151,18 @@ fn main() -> Result<(), &'static str> {
 		Some("g") => SVGTag::G,
 		_ => SVGTag::SYMBOL,
 	};
-	let remove_attributes: Vec<String> =
-		values_t!(args_matches, "remove-attribute", String).unwrap_or_else(|_| vec![]);
-	let _remove_elements: Vec<String> =
-		values_t!(args_matches, "remove-element", String).unwrap_or_else(|_| vec![]);
+	let remove_attributes: Vec<String> = values_t!(args_matches, "remove-attribute", String).unwrap_or_else(|_| vec![]);
+	let _remove_elements: Vec<String> = values_t!(args_matches, "remove-element", String).unwrap_or_else(|_| vec![]);
 
 	let input_path: &Path = Path::new(input.as_str());
 
-	if !input_path.is_dir() {
-		return Err("Input path is not directory");
-	}
-
 	let mut svgs = vec![];
 
-	walk(input_path, &mut svgs, vec![])?;
+	if let Err(e) = walk(input_path, &mut svgs, vec![]) {
+		println!("{:#?}", e);
+
+		return;
+	};
 
 	let mut svg = Element::new("svg");
 	let mut namespaces = Namespace::empty();
@@ -187,20 +182,16 @@ fn main() -> Result<(), &'static str> {
 
 				if tag == SVGTag::SYMBOL {
 					if let Some((k, v)) = svg_root_element.attributes.get_key_value("viewBox") {
-						new_svg_element
-							.attributes
-							.insert(k.to_owned(), v.to_owned());
+						new_svg_element.attributes.insert(k.to_owned(), v.to_owned());
 					}
 				}
 
 				svg_root_element
 					.children
 					.into_iter()
-					.filter(|child| {
-						match child {
-							XMLNode::Comment(_) => false,
-							_ => true,
-						}
+					.filter(|child| match child {
+						XMLNode::Comment(_) => false,
+						_ => true,
 					})
 					.for_each(|mut child| {
 						crate::remove_attributes(&mut child, &remove_attributes);
@@ -208,27 +199,26 @@ fn main() -> Result<(), &'static str> {
 						new_svg_element.children.push(child);
 					});
 
-				new_svg_element.attributes.insert(
-					"id".to_owned(),
-					format!("#{}", svg_file.tree_names.join(&separator)),
-				);
+				new_svg_element
+					.attributes
+					.insert("id".to_owned(), format!("#{}", svg_file.tree_names.join(&separator)));
 
 				svg.children.push(XMLNode::Element(new_svg_element));
 			}
 		}
 	});
 
-	if let Ok(file) = std::fs::File::create(output) {
-		let mut config = EmitterConfig::default();
-		config.perform_indent = true;
+	match std::fs::File::create(output) {
+		Ok(file) => {
+			let mut config = EmitterConfig::default();
+			config.perform_indent = true;
 
-		match svg.write_with_config(file, config) {
-			Ok(_) => {}
-			Err(e) => {
-				eprintln!("{:?}", e);
+			if let Err(e) = svg.write_with_config(file, config) {
+				eprintln!("Unable to write SVG. {}", e);
 			}
 		}
+		Err(e) => {
+			println!("Unable to write to output file. {}", e);
+		}
 	}
-
-	Ok(())
 }

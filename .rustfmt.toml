@@ -1,5 +1,5 @@
 edition = "2018"
 hard_tabs = true
+max_width = 128
 reorder_imports = true
 merge_imports = true
-force_multiline_blocks = true
