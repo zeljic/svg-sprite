@@ -2,9 +2,10 @@
 extern crate clap;
 
 use anyhow::Context;
-use clap::{App, Arg};
+use clap::{App, Arg, Values};
 use std::{
 	ffi::OsStr,
+	io::Write,
 	path::{Path, PathBuf},
 };
 use xmltree::{Element, EmitterConfig, Namespace, XMLNode};
@@ -19,6 +20,12 @@ enum SVGTag {
 struct SVGFile {
 	tree_names: Vec<String>,
 	system_path: PathBuf,
+}
+
+impl SVGFile {
+	fn print(&self, writer: &mut dyn Write) -> () {
+		write!(writer, "nice").unwrap();
+	}
 }
 
 impl<P> From<P> for SVGFile
@@ -137,6 +144,11 @@ fn main() {
 		.long("recursive")
 		.long_help("Get files from INPUT recursively");
 
+	let arg_verbose = Arg::with_name("verbose")
+		.short("v")
+		.multiple(true)
+		.long_help("Show more info about files and generated SVG file");
+
 	let args_matches = App::new(crate_name!())
 		.version(crate_version!())
 		.author(crate_authors!())
@@ -149,6 +161,7 @@ fn main() {
 			arg_remove_attributes,
 			arg_remove_elements,
 			arg_recursive,
+			arg_verbose,
 		])
 		.get_matches();
 
@@ -162,6 +175,7 @@ fn main() {
 	let remove_attributes: Vec<String> = values_t!(args_matches, "remove-attribute", String).unwrap_or_else(|_| vec![]);
 	let _remove_elements: Vec<String> = values_t!(args_matches, "remove-element", String).unwrap_or_else(|_| vec![]);
 	let recursive = args_matches.is_present("recursive");
+	let verbose_count = args_matches.occurrences_of("verbose");
 
 	let input_path: &Path = Path::new(input.as_str());
 
@@ -223,7 +237,7 @@ fn main() {
 			config.perform_indent = true;
 
 			if let Err(e) = svg.write_with_config(file, config) {
-				eprintln!("Unable to write SVG. {}", e);
+				println!("Unable to write SVG. {}", e);
 			}
 		}
 		Err(e) => {
