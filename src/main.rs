@@ -224,7 +224,7 @@ fn main() {
 
 				new_svg_element
 					.attributes
-					.insert("id".to_owned(), format!("#{}", svg_file.tree_names.join(&separator)));
+					.insert("id".to_owned(), format!("{}", svg_file.tree_names.join(&separator)));
 
 				svg.children.push(XMLNode::Element(new_svg_element));
 			}
