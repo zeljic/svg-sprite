@@ -2,7 +2,7 @@
 extern crate clap;
 
 use anyhow::Context;
-use clap::{App, Arg, Values};
+use clap::{App, Arg};
 use std::{
 	ffi::OsStr,
 	io::Write,
@@ -23,7 +23,7 @@ struct SVGFile {
 }
 
 impl SVGFile {
-	fn print(&self, writer: &mut dyn Write) -> () {
+	fn print(&self, writer: &mut dyn Write) {
 		write!(writer, "nice").unwrap();
 	}
 }
@@ -88,18 +88,6 @@ fn walk(path: &Path, svgs: &mut Vec<SVGFile>, tree_names: Vec<String>, recursive
 	Ok(())
 }
 
-fn remove_attributes(xml_node: &mut XMLNode, attrs: &[String]) {
-	if let XMLNode::Element(el) = xml_node {
-		for attr in attrs {
-			el.attributes.remove(attr);
-
-			el.children.iter_mut().for_each(|el| {
-				crate::remove_attributes(el, attrs);
-			});
-		}
-	}
-}
-
 fn main() {
 	let arg_input = Arg::with_name("INPUT")
 		.index(1)
@@ -129,7 +117,7 @@ fn main() {
 		.takes_value(true)
 		.multiple(true)
 		.number_of_values(1)
-		.long_help("Remove attributes from SVG file");
+		.long_help("Remove attributes from SVG file. It works only on first level elements.");
 
 	let arg_remove_elements = Arg::with_name("remove-element")
 		.short("e")
@@ -137,7 +125,7 @@ fn main() {
 		.takes_value(true)
 		.multiple(true)
 		.number_of_values(1)
-		.long_help("Remove elements from svg based on tag name");
+		.long_help("Remove elements from svg based on tag name. It works only on first level.");
 
 	let arg_recursive = Arg::with_name("recursive")
 		.short("r")
@@ -173,9 +161,8 @@ fn main() {
 		_ => SVGTag::SYMBOL,
 	};
 	let remove_attributes: Vec<String> = values_t!(args_matches, "remove-attribute", String).unwrap_or_else(|_| vec![]);
-	let _remove_elements: Vec<String> = values_t!(args_matches, "remove-element", String).unwrap_or_else(|_| vec![]);
+	let remove_elements: Vec<String> = values_t!(args_matches, "remove-element", String).unwrap_or_else(|_| vec![]);
 	let recursive = args_matches.is_present("recursive");
-	let verbose_count = args_matches.occurrences_of("verbose");
 
 	let input_path: &Path = Path::new(input.as_str());
 
@@ -216,15 +203,28 @@ fn main() {
 						XMLNode::Comment(_) => false,
 						_ => true,
 					})
+					.filter(|child| {
+						if let XMLNode::Element(el) = child {
+							!remove_elements.contains(&el.name)
+						} else {
+							true
+						}
+					})
 					.for_each(|mut child| {
-						crate::remove_attributes(&mut child, &remove_attributes);
+						if let XMLNode::Element(el) = &mut child {
+							let attributes = &mut el.attributes;
+
+							for attribute in &remove_attributes {
+								attributes.remove(attribute);
+							}
+						}
 
 						new_svg_element.children.push(child);
 					});
 
 				new_svg_element
 					.attributes
-					.insert("id".to_owned(), format!("{}", svg_file.tree_names.join(&separator)));
+					.insert("id".to_owned(), svg_file.tree_names.join(&separator));
 
 				svg.children.push(XMLNode::Element(new_svg_element));
 			}
