@@ -94,7 +94,7 @@ fn main() {
 		.required(true)
 		.long_help("Source directory where svg files are located");
 
-	let arg_output = Arg::with_name("OUTPUT").index(2).required(true).long_help("Output file");
+	let arg_output = Arg::with_name("OUTPUT").index(2).required(false).long_help("Output file");
 
 	let arg_separator = Arg::with_name("separator")
 		.short("s")
@@ -154,7 +154,7 @@ fn main() {
 		.get_matches();
 
 	let input = value_t!(args_matches, "INPUT", String).unwrap_or_else(|e| e.exit());
-	let output = value_t!(args_matches, "OUTPUT", String).unwrap_or_else(|e| e.exit());
+	let output = args_matches.value_of("OUTPUT");
 	let separator = value_t!(args_matches, "separator", String).unwrap_or_else(|_| "-".to_owned());
 	let tag: SVGTag = match args_matches.value_of("tag") {
 		Some("g") => SVGTag::G,
@@ -231,17 +231,27 @@ fn main() {
 		}
 	});
 
-	match std::fs::File::create(output) {
-		Ok(file) => {
-			let mut config = EmitterConfig::default();
-			config.perform_indent = true;
+	let mut output_location: Option<Box<dyn Write>> = None;
 
-			if let Err(e) = svg.write_with_config(file, config) {
-				println!("Unable to write SVG. {}", e);
+	if let Some(output) = output {
+		match std::fs::File::create(output) {
+			Ok(output) => {
+				output_location = Some(Box::new(output));
+			}
+			Err(e) => {
+				println!("Unable to write to output file. {}", e);
 			}
 		}
-		Err(e) => {
-			println!("Unable to write to output file. {}", e);
+	} else {
+		output_location = Some(Box::new(std::io::stdout()));
+	}
+
+	if let Some(output_location) = output_location {
+		let mut config = EmitterConfig::default();
+		config.perform_indent = true;
+
+		if let Err(e) = svg.write_with_config(output_location, config) {
+			println!("Unable to write SVG. {}", e);
 		}
 	}
 }
